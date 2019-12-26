@@ -17,10 +17,6 @@ var rootHashTable ipHashTable
 
 var hashTablesCount int = 0
 
-var adr1 = [4]byte{127, 0, 0, 1}
-var adr2 = [4]byte{127, 0, 10, 2}
-var adr3 = [4]byte{192, 168, 1, 2}
-
 func addIPToHashTable(root *ipHashTable, addr [4]byte, level byte) {
 
 	newroot, found := (*root)[addr[level]]
