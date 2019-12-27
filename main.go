@@ -128,17 +128,16 @@ func main() {
 	groupID := "nogroup"          //os.Getenv("groupID")
 	var msg KafkaMsg
 	var MsgCount int64 = 0
+
+	//c := make(chan os.Signal)
+	//signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+
 	reader := getKafkaReader(kafkaURL, topic, groupID)
 
 	fmt.Println("start consuming ... !!")
 	start := time.Now()
 
-	defer func() {
-		reader.Close()
-		elapsed := time.Since(start)
-		fmt.Printf("Message processed %b in %s\n", MsgCount, elapsed)
-
-	}()
+	defer reader.Close()
 
 	for {
 		MsgCount++
@@ -151,13 +150,25 @@ func main() {
 
 		if search(parseIPtoArray(msg.SrcIP)) {
 			fmt.Println("Found Bad IP in Src:", msg.SrcIP)
-			fmt.Println(string(m.Value))
 		}
 
 		if search(parseIPtoArray(msg.DstIP)) {
 			fmt.Println("Found Bad IP in Dst:", msg.DstIP)
 
 		}
+
+		//select {
+		//case sig := <-c:
+		//	fmt.Println("received message", sig)
+		//		elapsed := time.Since(start)
+		//		fmt.Printf("Message processed %b in %s\n", MsgCount, elapsed)
+		//		break
+		//	default:
+
+		//	}
+
 	}
+	elapsed := time.Since(start)
+	fmt.Printf("Message processed %b in %s\n", MsgCount, elapsed)
 
 }
