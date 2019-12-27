@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	kafka "github.com/segmentio/kafka-go"
 )
 
 type ipHashTable map[byte]ipHashTable
@@ -16,6 +20,22 @@ type ipHashTable map[byte]ipHashTable
 var rootHashTable ipHashTable
 
 var hashTablesCount int = 0
+
+type KafkaMsg struct {
+	SrcIP string `json:"srcip"`
+	DstIP string `json:"dstip"`
+}
+
+func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
+	brokers := strings.Split(kafkaURL, ",")
+	return kafka.NewReader(kafka.ReaderConfig{
+		Brokers: brokers,
+		//GroupID:  groupID,
+		Topic:    topic,
+		MinBytes: 10e3, // 10KB
+		MaxBytes: 10e6, // 10MB
+	})
+}
 
 func addIPToHashTable(root *ipHashTable, addr [4]byte, level byte) {
 
@@ -97,21 +117,47 @@ func search(adr [4]byte) bool {
 }
 
 func main() {
+
 	rootHashTable = make(ipHashTable, 255)
 	loadIPfromFile("ip_list.txt")
 	fmt.Printf("HashTables added %d\n", hashTablesCount)
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("enter IP")
-	for {
-		fmt.Print("-> ")
-		text, _ := reader.ReadString('\n')
-		text = strings.Replace(text, "\n", "", -1)
-		start := time.Now()
-		res := search(parseIPtoArray(text))
-		elapsed := time.Since(start)
-		fmt.Println(res)
-		fmt.Printf("Search took %s\n", elapsed)
 
+	// get kafka reader using environment variables.
+	kafkaURL := "10.5.92.15:9093" //os.Getenv("kafkaURL")
+	topic := "hh"                 //os.Getenv("topic")
+	groupID := "nogroup"          //os.Getenv("groupID")
+	var msg KafkaMsg
+	var MsgCount int64 = 0
+	reader := getKafkaReader(kafkaURL, topic, groupID)
+
+	fmt.Println("start consuming ... !!")
+	start := time.Now()
+
+	defer func() {
+		reader.Close()
+		elapsed := time.Since(start)
+		fmt.Printf("Message processed %b in %s\n", MsgCount, elapsed)
+
+	}()
+
+	for {
+		MsgCount++
+		m, err := reader.ReadMessage(context.Background())
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		json.Unmarshal([]byte(m.Value), &msg)
+
+		if search(parseIPtoArray(msg.SrcIP)) {
+			fmt.Println("Found Bad IP in Src:", msg.SrcIP)
+			fmt.Println(string(m.Value))
+		}
+
+		if search(parseIPtoArray(msg.DstIP)) {
+			fmt.Println("Found Bad IP in Dst:", msg.DstIP)
+
+		}
 	}
 
 }
