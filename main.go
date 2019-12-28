@@ -4,16 +4,29 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	// "github.com/prometheus/client_golang/prometheus"
+	// "github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	kafka "github.com/segmentio/kafka-go"
 )
+
+var kafkaURL = flag.String("kafka-broker", "127.0.0.1:9092", "Kafka broker URL list")
+var intopic = flag.String("kafka-in-topic", "notopic", "Kafka topic to read from")
+var outtopic = flag.String("kafka-out-topic", "notopic", "Kafka topic to write to")
+var groupID = flag.String("kafka-group", "nogroup", "Kafka group")
+var filename = flag.String("ip-list", "badip.txt", "IP list to search")
 
 type ipHashTable map[byte]ipHashTable
 
@@ -26,14 +39,32 @@ type KafkaMsg struct {
 	DstIP string `json:"dstip"`
 }
 
+type AlarmMsg struct {
+	Msg             string `json:"msg"`
+	Direction       string `json:"direction"`
+	BadIP           string `json:"badip"`
+	SourceTimeStamp string `json:"time"`
+	LogSource       string `json:"logsource"`
+}
+
 func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 	brokers := strings.Split(kafkaURL, ",")
 	return kafka.NewReader(kafka.ReaderConfig{
-		Brokers: brokers,
-		//GroupID:  groupID,
+		Brokers:     brokers,
+		GroupID:     groupID,
+		Topic:       topic,
+		MinBytes:    10e3, // 10KB
+		MaxBytes:    10e6, // 10MB
+		MaxWait:     3 * time.Second,
+		StartOffset: kafka.LastOffset,
+	})
+}
+
+func newKafkaWriter(kafkaURL, topic string) *kafka.Writer {
+	return kafka.NewWriter(kafka.WriterConfig{
+		Brokers:  []string{kafkaURL},
 		Topic:    topic,
-		MinBytes: 10e3, // 10KB
-		MaxBytes: 10e6, // 10MB
+		Balancer: &kafka.LeastBytes{},
 	})
 }
 
@@ -76,7 +107,7 @@ func loadIPfromFile(fileName string) {
 	scanner := bufio.NewScanner(file)
 
 	r, _ := regexp.Compile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
-	fmt.Print("Loading.")
+	log.Print("Loading.")
 	for scanner.Scan() {
 		str := scanner.Text()
 		if r.MatchString(str) {
@@ -89,7 +120,7 @@ func loadIPfromFile(fileName string) {
 		}
 	}
 
-	fmt.Println("\nNormal IP:", normalip, "Bad IP:", badip)
+	log.Println("\nNormal IP:", normalip, "Bad IP:", badip)
 
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
@@ -116,59 +147,99 @@ func search(adr [4]byte) bool {
 	return found
 }
 
+func init() {
+	flag.Parse()
+}
+
 func main() {
 
-	rootHashTable = make(ipHashTable, 255)
-	loadIPfromFile("ip_list.txt")
-	fmt.Printf("HashTables added %d\n", hashTablesCount)
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		http.ListenAndServe(":2112", nil)
+	}()
 
-	// get kafka reader using environment variables.
-	kafkaURL := "10.5.92.15:9093" //os.Getenv("kafkaURL")
-	topic := "hh"                 //os.Getenv("topic")
-	groupID := "nogroup"          //os.Getenv("groupID")
 	var msg KafkaMsg
-	var MsgCount int64 = 0
+	var alert AlarmMsg
 
-	//c := make(chan os.Signal)
-	//signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	rootHashTable = make(ipHashTable, 255)
 
-	reader := getKafkaReader(kafkaURL, topic, groupID)
+	loadIPfromFile(*filename)
 
-	fmt.Println("start consuming ... !!")
+	log.Printf("HashTables added %d\n", hashTablesCount)
+
+	sigs := make(chan os.Signal, 1)
+
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	reader := getKafkaReader(*kafkaURL, *intopic, *groupID)
+	writer := newKafkaWriter(*kafkaURL, *outtopic)
+
+	defer func() {
+		reader.Close()
+		writer.Close()
+	}()
+
+	log.Println("start consuming ... !!")
+
 	start := time.Now()
 
-	defer reader.Close()
-
+loop:
 	for {
-		MsgCount++
-		m, err := reader.ReadMessage(context.Background())
-		if err != nil {
-			log.Fatalln(err)
+
+		select {
+		case sig := <-sigs:
+			log.Println(sig)
+			break loop
+		default:
+			m, err := reader.ReadMessage(context.Background())
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			err = json.Unmarshal([]byte(m.Value), &msg)
+
+			if err == nil {
+
+				badsrc := search(parseIPtoArray(msg.SrcIP))
+				baddst := search(parseIPtoArray(msg.DstIP))
+
+				if badsrc || baddst {
+					alert.Msg = "Suspicious IP found"
+					alert.SourceTimeStamp = "11111"
+					alert.LogSource = "self"
+					if badsrc {
+						alert.BadIP = msg.SrcIP
+						alert.Direction = "inbound"
+					}
+					if baddst {
+						alert.BadIP = msg.DstIP
+						alert.Direction = "outound"
+					}
+
+					alrm, _ := json.Marshal(alert)
+
+					str := kafka.Message{
+						Key:   []byte(alert.BadIP),
+						Value: alrm,
+					}
+
+					err := writer.WriteMessages(context.Background(), str)
+
+					if err != nil {
+						fmt.Println(err)
+					}
+
+				}
+
+			} else {
+				log.Print(err)
+			}
+
 		}
-
-		json.Unmarshal([]byte(m.Value), &msg)
-
-		if search(parseIPtoArray(msg.SrcIP)) {
-			fmt.Println("Found Bad IP in Src:", msg.SrcIP)
-		}
-
-		if search(parseIPtoArray(msg.DstIP)) {
-			fmt.Println("Found Bad IP in Dst:", msg.DstIP)
-
-		}
-
-		//select {
-		//case sig := <-c:
-		//	fmt.Println("received message", sig)
-		//		elapsed := time.Since(start)
-		//		fmt.Printf("Message processed %b in %s\n", MsgCount, elapsed)
-		//		break
-		//	default:
-
-		//	}
-
 	}
+
+	log.Println("Terminating")
 	elapsed := time.Since(start)
-	fmt.Printf("Message processed %b in %s\n", MsgCount, elapsed)
+	log.Printf("Message processed %d in %s\n", reader.Stats().Messages, elapsed)
 
 }
