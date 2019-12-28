@@ -15,9 +15,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	// "github.com/prometheus/client_golang/prometheus"
-	// "github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	kafka "github.com/segmentio/kafka-go"
 )
@@ -34,17 +31,29 @@ var rootHashTable ipHashTable
 
 var hashTablesCount int = 0
 
-type KafkaMsg struct {
+type kafkaMsg struct {
 	SrcIP string `json:"srcip"`
 	DstIP string `json:"dstip"`
 }
 
-type AlarmMsg struct {
+type alarmMsg struct {
 	Msg             string `json:"msg"`
 	Direction       string `json:"direction"`
 	BadIP           string `json:"badip"`
 	SourceTimeStamp string `json:"time"`
 	LogSource       string `json:"logsource"`
+}
+
+type server struct {
+}
+
+var reader *kafka.Reader
+
+func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	str, _ := json.Marshal(reader.Stats())
+	w.Write([]byte(str))
 }
 
 func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
@@ -153,13 +162,8 @@ func init() {
 
 func main() {
 
-	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		http.ListenAndServe(":2112", nil)
-	}()
-
-	var msg KafkaMsg
-	var alert AlarmMsg
+	var msg kafkaMsg
+	var alert alarmMsg
 
 	rootHashTable = make(ipHashTable, 255)
 
@@ -171,12 +175,18 @@ func main() {
 
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	reader := getKafkaReader(*kafkaURL, *intopic, *groupID)
+	reader = getKafkaReader(*kafkaURL, *intopic, *groupID)
 	writer := newKafkaWriter(*kafkaURL, *outtopic)
 
 	defer func() {
 		reader.Close()
 		writer.Close()
+	}()
+
+	go func() {
+		s := &server{}
+		http.Handle("/api", s)
+		log.Fatal(http.ListenAndServe(":1234", nil))
 	}()
 
 	log.Println("start consuming ... !!")
@@ -196,7 +206,7 @@ loop:
 				log.Fatalln(err)
 			}
 
-			err = json.Unmarshal([]byte(m.Value), &msg)
+			err = msg.UnmarshalJSON([]byte(m.Value))
 
 			if err == nil {
 
@@ -216,7 +226,7 @@ loop:
 						alert.Direction = "outound"
 					}
 
-					alrm, _ := json.Marshal(alert)
+					alrm, _ := alert.MarshalJSON()
 
 					str := kafka.Message{
 						Key:   []byte(alert.BadIP),
