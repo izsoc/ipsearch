@@ -42,6 +42,8 @@ type alarmMsg struct {
 	BadIP           string `json:"badip"`
 	SourceTimeStamp string `json:"time"`
 	LogSource       string `json:"logsource"`
+	SrcIP           string `json:"srcip"`
+	DstIP           string `json:"dstip"`
 }
 
 type server struct {
@@ -216,7 +218,9 @@ loop:
 				if badsrc || baddst {
 					alert.Msg = "Suspicious IP found"
 					alert.SourceTimeStamp = "11111"
-					alert.LogSource = "self"
+					alert.LogSource = *groupID
+					alert.SrcIP = msg.SrcIP
+					alert.DstIP = msg.DstIP
 					if badsrc {
 						alert.BadIP = msg.SrcIP
 						alert.Direction = "inbound"
