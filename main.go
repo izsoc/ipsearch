@@ -24,6 +24,7 @@ var intopic = flag.String("kafka-in-topic", "notopic", "Kafka topic to read from
 var outtopic = flag.String("kafka-out-topic", "notopic", "Kafka topic to write to")
 var groupID = flag.String("kafka-group", "nogroup", "Kafka group")
 var filename = flag.String("ip-list", "badip.txt", "IP list to search")
+var metricsport = flag.String("metric-port", "1234", "Port to expose metrics")
 
 type ipHashTable map[byte]ipHashTable
 
@@ -32,11 +33,14 @@ var rootHashTable ipHashTable
 var hashTablesCount int = 0
 
 type kafkaMsg struct {
-	SrcIP string `json:"srcip"`
-	DstIP string `json:"dstip"`
+	SrcIP  string `json:"srcip"`
+	DstIP  string `json:"dstip"`
+	Time   string `json:"logsource_time"`
+	Action string `json:"action"`
+	BadIP  string `json:"badip"`
 }
 
-type alarmMsg struct {
+/*type alarmMsg struct {
 	Msg             string `json:"msg"`
 	Direction       string `json:"direction"`
 	BadIP           string `json:"badip"`
@@ -44,7 +48,7 @@ type alarmMsg struct {
 	LogSource       string `json:"logsource"`
 	SrcIP           string `json:"srcip"`
 	DstIP           string `json:"dstip"`
-}
+}*/
 
 type server struct {
 }
@@ -165,7 +169,7 @@ func init() {
 func main() {
 
 	var msg kafkaMsg
-	var alert alarmMsg
+	//var alert alarmMsg
 
 	rootHashTable = make(ipHashTable, 255)
 
@@ -188,7 +192,7 @@ func main() {
 	go func() {
 		s := &server{}
 		http.Handle("/api", s)
-		log.Fatal(http.ListenAndServe(":1234", nil))
+		log.Fatal(http.ListenAndServe(":"+*metricsport, nil))
 	}()
 
 	log.Println("start consuming ... !!")
@@ -214,26 +218,30 @@ loop:
 
 				badsrc := search(parseIPtoArray(msg.SrcIP))
 				baddst := search(parseIPtoArray(msg.DstIP))
+				action := false
+				if msg.Action == "Accept" {
+					action = true
+				}
 
-				if badsrc || baddst {
-					alert.Msg = "Suspicious IP found"
-					alert.SourceTimeStamp = "11111"
-					alert.LogSource = *groupID
-					alert.SrcIP = msg.SrcIP
-					alert.DstIP = msg.DstIP
+				if (badsrc && action) || baddst {
+					//alert.Msg = "Suspicious IP found"
+					//alert.SourceTimeStamp = msg.Time
+					//alert.LogSource = *groupID
+					//alert.SrcIP = msg.SrcIP
+					//alert.DstIP = msg.DstIP
 					if badsrc {
-						alert.BadIP = msg.SrcIP
-						alert.Direction = "inbound"
+						msg.BadIP = msg.SrcIP
+						//alert.Direction = "inbound"
 					}
 					if baddst {
-						alert.BadIP = msg.DstIP
-						alert.Direction = "outound"
+						msg.BadIP = msg.DstIP
+						//alert.Direction = "outound"
 					}
 
-					alrm, _ := alert.MarshalJSON()
+					alrm, _ := msg.MarshalJSON()
 
 					str := kafka.Message{
-						Key:   []byte(alert.BadIP),
+						Key:   []byte("ti"), //[]byte(alert.BadIP)
 						Value: alrm,
 					}
 
