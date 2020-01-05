@@ -40,20 +40,8 @@ type kafkaMsg struct {
 	BadIP  string `json:"badip"`
 }
 
-/*type alarmMsg struct {
-	Msg             string `json:"msg"`
-	Direction       string `json:"direction"`
-	BadIP           string `json:"badip"`
-	SourceTimeStamp string `json:"time"`
-	LogSource       string `json:"logsource"`
-	SrcIP           string `json:"srcip"`
-	DstIP           string `json:"dstip"`
-}*/
-
 type server struct {
 }
-
-var reader *kafka.Reader
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -61,6 +49,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	str, _ := json.Marshal(reader.Stats())
 	w.Write([]byte(str))
 }
+
+var reader *kafka.Reader
 
 func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 	brokers := strings.Split(kafkaURL, ",")
@@ -121,8 +111,13 @@ func loadIPfromFile(fileName string) {
 
 	scanner := bufio.NewScanner(file)
 
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
 	r, _ := regexp.Compile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
 	log.Print("Loading.")
+
 	for scanner.Scan() {
 		str := scanner.Text()
 		if r.MatchString(str) {
@@ -130,16 +125,12 @@ func loadIPfromFile(fileName string) {
 			normalip++
 			//fmt.Print(".")
 		} else {
-			fmt.Println("\nBad IP:", str)
+			log.Println("\nBad IP:", str)
 			badip++
 		}
 	}
 
 	log.Println("\nNormal IP:", normalip, "Bad IP:", badip)
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
 
 }
 
@@ -169,7 +160,6 @@ func init() {
 func main() {
 
 	var msg kafkaMsg
-	//var alert alarmMsg
 
 	rootHashTable = make(ipHashTable, 255)
 
@@ -191,7 +181,7 @@ func main() {
 
 	go func() {
 		s := &server{}
-		http.Handle("/api", s)
+		http.Handle("/metrics", s)
 		log.Fatal(http.ListenAndServe(":"+*metricsport, nil))
 	}()
 
@@ -209,7 +199,7 @@ loop:
 		default:
 			m, err := reader.ReadMessage(context.Background())
 			if err != nil {
-				log.Fatalln(err)
+				log.Println(err)
 			}
 
 			err = msg.UnmarshalJSON([]byte(m.Value))
@@ -224,18 +214,14 @@ loop:
 				}
 
 				if (badsrc && action) || baddst {
-					//alert.Msg = "Suspicious IP found"
-					//alert.SourceTimeStamp = msg.Time
-					//alert.LogSource = *groupID
-					//alert.SrcIP = msg.SrcIP
-					//alert.DstIP = msg.DstIP
+
 					if badsrc {
 						msg.BadIP = msg.SrcIP
-						//alert.Direction = "inbound"
+
 					}
 					if baddst {
 						msg.BadIP = msg.DstIP
-						//alert.Direction = "outound"
+
 					}
 
 					alrm, _ := msg.MarshalJSON()
