@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -32,6 +31,8 @@ var rootHashTable ipHashTable
 
 var hashTablesCount int = 0
 
+var logger *log.Logger
+
 type kafkaMsg struct {
 	SrcIP  string `json:"srcip"`
 	DstIP  string `json:"dstip"`
@@ -52,16 +53,19 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 var reader *kafka.Reader
 
-func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
+func getKafkaReader(kafkaURL, topic, groupID string, logger *log.Logger) *kafka.Reader {
 	brokers := strings.Split(kafkaURL, ",")
 	return kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     brokers,
-		GroupID:     groupID,
-		Topic:       topic,
-		MinBytes:    10e3, // 10KB
-		MaxBytes:    10e6, // 10MB
-		MaxWait:     3 * time.Second,
-		StartOffset: kafka.LastOffset,
+		Brokers:        brokers,
+		GroupID:        groupID,
+		Topic:          topic,
+		MinBytes:       10e3, // 10KB
+		MaxBytes:       10e6, // 10MB
+		MaxWait:        3 * time.Second,
+		StartOffset:    kafka.LastOffset,
+		CommitInterval: 3 * time.Second,
+		QueueCapacity:  1000,
+		ErrorLogger:    logger,
 	})
 }
 
@@ -104,7 +108,7 @@ func loadIPfromFile(fileName string) {
 	var badip int = 0
 
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	defer file.Close()
@@ -112,11 +116,11 @@ func loadIPfromFile(fileName string) {
 	scanner := bufio.NewScanner(file)
 
 	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	r, _ := regexp.Compile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
-	log.Print("Loading.")
+	logger.Print("Loading.")
 
 	for scanner.Scan() {
 		str := scanner.Text()
@@ -125,12 +129,12 @@ func loadIPfromFile(fileName string) {
 			normalip++
 			//fmt.Print(".")
 		} else {
-			log.Println("\nBad IP:", str)
+			logger.Print("Bad IP:", str)
 			badip++
 		}
 	}
 
-	log.Println("\nNormal IP:", normalip, "Bad IP:", badip)
+	logger.Print("Normal IP: ", normalip, " Bad IP: ", badip)
 
 }
 
@@ -155,6 +159,7 @@ func search(adr [4]byte) bool {
 
 func init() {
 	flag.Parse()
+	logger = log.New(os.Stdout, "ipsearch: ", log.Lshortfile)
 }
 
 func main() {
@@ -165,13 +170,13 @@ func main() {
 
 	loadIPfromFile(*filename)
 
-	log.Printf("HashTables added %d\n", hashTablesCount)
+	logger.Printf("HashTables added %d", hashTablesCount)
 
 	sigs := make(chan os.Signal, 1)
 
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	reader = getKafkaReader(*kafkaURL, *intopic, *groupID)
+	reader = getKafkaReader(*kafkaURL, *intopic, *groupID, logger)
 	writer := newKafkaWriter(*kafkaURL, *outtopic)
 
 	defer func() {
@@ -182,10 +187,10 @@ func main() {
 	go func() {
 		s := &server{}
 		http.Handle("/metrics", s)
-		log.Fatal(http.ListenAndServe(":"+*metricsport, nil))
+		logger.Fatal(http.ListenAndServe(":"+*metricsport, nil))
 	}()
 
-	log.Println("start consuming ... !!")
+	logger.Print("start consuming ... !!")
 
 	start := time.Now()
 
@@ -194,12 +199,12 @@ loop:
 
 		select {
 		case sig := <-sigs:
-			log.Println(sig)
+			logger.Print(sig)
 			break loop
 		default:
 			m, err := reader.ReadMessage(context.Background())
 			if err != nil {
-				log.Println(err)
+				logger.Print(err)
 			}
 
 			err = msg.UnmarshalJSON([]byte(m.Value))
@@ -234,20 +239,20 @@ loop:
 					err := writer.WriteMessages(context.Background(), str)
 
 					if err != nil {
-						fmt.Println(err)
+						logger.Print(err)
 					}
 
 				}
 
 			} else {
-				log.Print(err)
+				logger.Print(err)
 			}
 
 		}
 	}
 
-	log.Println("Terminating")
+	logger.Print("Terminating")
 	elapsed := time.Since(start)
-	log.Printf("Message processed %d in %s\n", reader.Stats().Messages, elapsed)
+	logger.Printf("Message processed %d in %s", reader.Stats().Messages, elapsed)
 
 }
