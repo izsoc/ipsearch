@@ -159,7 +159,7 @@ func search(adr [4]byte) bool {
 
 func init() {
 	flag.Parse()
-	logger = log.New(os.Stdout, "ipsearch: ", log.Lshortfile)
+	logger = log.New(os.Stdout, "ipsearch: ", log.Ldate|log.Ltime|log.Lshortfile)
 }
 
 func main() {
