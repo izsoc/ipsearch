@@ -144,6 +144,11 @@ func parseIPtoArray(str string) [4]byte {
 
 	strs := strings.Split(str, ".")
 
+	if len(strs) != 4 {
+		adr = [4]byte{0, 0, 0, 0}
+		return adr
+	}
+
 	for i := 0; i < 4; i++ {
 		x, _ := strconv.Atoi(strs[i])
 		adr[i] = byte(x)
