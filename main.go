@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json"
 	"flag"
 	"log"
 	"net/http"
@@ -41,17 +41,28 @@ type kafkaMsg struct {
 	BadIP  string `json:"badip"`
 }
 
-type server struct {
+var reader *kafka.Reader
+var writer *kafka.Writer
+
+type stat_reader struct {
 }
 
-func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+type stat_writer struct {
+}
+
+func (s *stat_reader) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	str, _ := json.Marshal(reader.Stats())
 	w.Write([]byte(str))
 }
 
-var reader *kafka.Reader
+func (s *stat_writer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	str, _ := json.Marshal(writer.Stats())
+	w.Write([]byte(str))
+}
 
 func getKafkaReader(kafkaURL, topic, groupID string, logger *log.Logger) *kafka.Reader {
 	brokers := strings.Split(kafkaURL, ",")
@@ -61,19 +72,21 @@ func getKafkaReader(kafkaURL, topic, groupID string, logger *log.Logger) *kafka.
 		Topic:          topic,
 		MinBytes:       10e3, // 10KB
 		MaxBytes:       10e6, // 10MB
-		MaxWait:        3 * time.Second,
 		StartOffset:    kafka.LastOffset,
-		CommitInterval: 3 * time.Second,
-		QueueCapacity:  1000,
-		ErrorLogger:    logger,
+		CommitInterval: 1 * time.Second,
+		QueueCapacity:  10000,
+		//ReadBackoffMin: 1 * time.Millisecond,
+		ErrorLogger: logger,
 	})
 }
 
 func newKafkaWriter(kafkaURL, topic string) *kafka.Writer {
 	return kafka.NewWriter(kafka.WriterConfig{
-		Brokers:  []string{kafkaURL},
-		Topic:    topic,
-		Balancer: &kafka.LeastBytes{},
+		Brokers: []string{kafkaURL},
+		Topic:   topic,
+		//Balancer: &kafka.LeastBytes{},
+		ErrorLogger: logger,
+		Async:       true,
 	})
 }
 
@@ -170,6 +183,7 @@ func init() {
 func main() {
 
 	var msg kafkaMsg
+	var msgcount uint32 = 0
 
 	rootHashTable = make(ipHashTable, 255)
 
@@ -182,16 +196,38 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	reader = getKafkaReader(*kafkaURL, *intopic, *groupID, logger)
-	writer := newKafkaWriter(*kafkaURL, *outtopic)
+	writer = newKafkaWriter(*kafkaURL, *outtopic)
+
+	quit := make(chan struct{})
 
 	defer func() {
 		reader.Close()
 		writer.Close()
+		close(quit)
 	}()
+	/*
+		go func() {
+			var st, delta uint32
+			for {
+				select {
+				case <-quit:
+					return
+				default:
+					st = msgcount
+					time.Sleep(60 * time.Second)
+					delta = msgcount - st
+					logger.Printf("Processed %d messages per minute", delta)
+				}
+			}
+		}()
+
+	*/
 
 	go func() {
-		s := &server{}
-		http.Handle("/metrics", s)
+		r := &stat_reader{}
+		w := &stat_writer{}
+		http.Handle("/metrics/reader", r)
+		http.Handle("/metrics/writer", w)
 		logger.Fatal(http.ListenAndServe(":"+*metricsport, nil))
 	}()
 
@@ -199,6 +235,9 @@ func main() {
 
 	start := time.Now()
 
+	//  var readTime time.Duration = 0
+	//	var searchTime time.Duration = 0
+	//  var writeTime time.Duration = 0
 loop:
 	for {
 
@@ -207,7 +246,11 @@ loop:
 			logger.Print(sig)
 			break loop
 		default:
+			//startTime := time.Now()
 			m, err := reader.ReadMessage(context.Background())
+			//readTime = readTime + time.Since(startTime)
+
+			msgcount++
 			if err != nil {
 				logger.Print(err)
 			}
@@ -215,9 +258,11 @@ loop:
 			err = msg.UnmarshalJSON([]byte(m.Value))
 
 			if err == nil {
-
+				//	startTime = time.Now()
 				badsrc := search(parseIPtoArray(msg.SrcIP))
 				baddst := search(parseIPtoArray(msg.DstIP))
+				//	searchTime = searchTime + time.Since(startTime)
+
 				action := false
 				if msg.Action == "Accept" {
 					action = true
@@ -241,7 +286,9 @@ loop:
 						Value: alrm,
 					}
 
+					//		startTime = time.Now()
 					err := writer.WriteMessages(context.Background(), str)
+					//		writeTime = writeTime + time.Since(startTime)
 
 					if err != nil {
 						logger.Print(err)
@@ -258,6 +305,6 @@ loop:
 
 	logger.Print("Terminating")
 	elapsed := time.Since(start)
-	logger.Printf("Message processed %d in %s", reader.Stats().Messages, elapsed)
-
+	logger.Printf("Message processed %d in %s", msgcount, elapsed)
+	//logger.Printf("Read time: %s Search time: %s Write time %s", readTime, searchTime, writeTime)
 }
