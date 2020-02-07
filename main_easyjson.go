@@ -4,7 +4,6 @@ package main
 
 import (
 	json "encoding/json"
-
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
@@ -18,7 +17,7 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjson89aae3efDecodeGithubComIpsearch1(in *jlexer.Lexer, out *kafkaMsg) {
+func easyjson89aae3efDecodeGithubComIpsearchStat(in *jlexer.Lexer, out *stat_writer) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -37,11 +36,131 @@ func easyjson89aae3efDecodeGithubComIpsearch1(in *jlexer.Lexer, out *kafkaMsg) {
 			continue
 		}
 		switch key {
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson89aae3efEncodeGithubComIpsearchStat(out *jwriter.Writer, in stat_writer) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	out.RawByte('}')
+}
+
+// MarshalJSON supports json.Marshaler interface
+func (v stat_writer) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	easyjson89aae3efEncodeGithubComIpsearchStat(&w, v)
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+// MarshalEasyJSON supports easyjson.Marshaler interface
+func (v stat_writer) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjson89aae3efEncodeGithubComIpsearchStat(w, v)
+}
+
+// UnmarshalJSON supports json.Unmarshaler interface
+func (v *stat_writer) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	easyjson89aae3efDecodeGithubComIpsearchStat(&r, v)
+	return r.Error()
+}
+
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
+func (v *stat_writer) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjson89aae3efDecodeGithubComIpsearchStat(l, v)
+}
+func easyjson89aae3efDecodeGithubComIpsearchStat1(in *jlexer.Lexer, out *stat_reader) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeString()
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson89aae3efEncodeGithubComIpsearchStat1(out *jwriter.Writer, in stat_reader) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	out.RawByte('}')
+}
+
+// MarshalJSON supports json.Marshaler interface
+func (v stat_reader) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	easyjson89aae3efEncodeGithubComIpsearchStat1(&w, v)
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+// MarshalEasyJSON supports easyjson.Marshaler interface
+func (v stat_reader) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjson89aae3efEncodeGithubComIpsearchStat1(w, v)
+}
+
+// UnmarshalJSON supports json.Unmarshaler interface
+func (v *stat_reader) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	easyjson89aae3efDecodeGithubComIpsearchStat1(&r, v)
+	return r.Error()
+}
+
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
+func (v *stat_reader) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjson89aae3efDecodeGithubComIpsearchStat1(l, v)
+}
+func easyjson89aae3efDecodeGithubComIpsearch(in *jlexer.Lexer, out *kafkaMsg) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeString()
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "type":
+			out.CustomerID = string(in.String())
 		case "srcip":
 			out.SrcIP = string(in.String())
 		case "dstip":
 			out.DstIP = string(in.String())
-		case "logsource_time":
+		case "@timestamp":
 			out.Time = string(in.String())
 		case "action":
 			out.Action = string(in.String())
@@ -57,13 +176,18 @@ func easyjson89aae3efDecodeGithubComIpsearch1(in *jlexer.Lexer, out *kafkaMsg) {
 		in.Consumed()
 	}
 }
-func easyjson89aae3efEncodeGithubComIpsearch1(out *jwriter.Writer, in kafkaMsg) {
+func easyjson89aae3efEncodeGithubComIpsearch(out *jwriter.Writer, in kafkaMsg) {
 	out.RawByte('{')
 	first := true
 	_ = first
 	{
-		const prefix string = ",\"srcip\":"
+		const prefix string = ",\"type\":"
 		out.RawString(prefix[1:])
+		out.String(string(in.CustomerID))
+	}
+	{
+		const prefix string = ",\"srcip\":"
+		out.RawString(prefix)
 		out.String(string(in.SrcIP))
 	}
 	{
@@ -72,7 +196,7 @@ func easyjson89aae3efEncodeGithubComIpsearch1(out *jwriter.Writer, in kafkaMsg) 
 		out.String(string(in.DstIP))
 	}
 	{
-		const prefix string = ",\"logsource_time\":"
+		const prefix string = ",\"@timestamp\":"
 		out.RawString(prefix)
 		out.String(string(in.Time))
 	}
@@ -92,23 +216,23 @@ func easyjson89aae3efEncodeGithubComIpsearch1(out *jwriter.Writer, in kafkaMsg) 
 // MarshalJSON supports json.Marshaler interface
 func (v kafkaMsg) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjson89aae3efEncodeGithubComIpsearch1(&w, v)
+	easyjson89aae3efEncodeGithubComIpsearch(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v kafkaMsg) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjson89aae3efEncodeGithubComIpsearch1(w, v)
+	easyjson89aae3efEncodeGithubComIpsearch(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *kafkaMsg) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjson89aae3efDecodeGithubComIpsearch1(&r, v)
+	easyjson89aae3efDecodeGithubComIpsearch(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *kafkaMsg) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjson89aae3efDecodeGithubComIpsearch1(l, v)
+	easyjson89aae3efDecodeGithubComIpsearch(l, v)
 }

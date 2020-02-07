@@ -34,11 +34,13 @@ var hashTablesCount int = 0
 var logger *log.Logger
 
 type kafkaMsg struct {
-	SrcIP  string `json:"srcip"`
-	DstIP  string `json:"dstip"`
-	Time   string `json:"logsource_time"`
-	Action string `json:"action"`
-	BadIP  string `json:"badip"`
+	CustomerID string `json:"type"`
+	SrcIP      string `json:"srcip"`
+	DstIP      string `json:"dstip"`
+	Time       string `json:"@timestamp"`
+	Action     string `json:"action"`
+	BadIP      string `json:"badip"`
+	//Message    string `json:"message"`
 }
 
 var reader *kafka.Reader
