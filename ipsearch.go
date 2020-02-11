@@ -25,6 +25,10 @@ var groupID = flag.String("kafka-group", "nogroup", "Kafka group")
 var filename = flag.String("ip-list", "badip.txt", "IP list to search")
 var metricsport = flag.String("metric-port", "1234", "Port to expose metrics")
 
+type ipsHashTableAgg map[uint64]time.Time
+
+var hashTableA, hashTableD ipsHashTableAgg
+
 type ipHashTable map[byte]ipHashTable
 
 var rootHashTable ipHashTable
